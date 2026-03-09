@@ -329,6 +329,31 @@ const int pickupberry_size = (int)(sizeof(pickupberry_commands) / sizeof(SetComm
 const int changethedate_size = (int)(sizeof(changethedate_commands) / sizeof(SetCommand));
 const int changetheyear_size = (int)(sizeof(changetheyear_commands) / sizeof(SetCommand));
 
+typedef enum {
+  NONE,   // do nothing
+  // On MCU
+  MASH_A,   // mash button A
+  AAABB,   // AAABB
+  AUTO_LEAGUE,// auto league
+  INF_WATT,   // infinity watt
+  PICKUPBERRY,
+  CHANGETHEDATE,  // Change the Date
+  CHANGETHEYEAR,  // Change the Year
+  P_SYNC,
+  P_UNSYNC,
+  DEBUG,
+  DEBUG2,
+
+  // From PC
+  PC_CALL,
+  PC_CALL_STRING,
+  PC_CALL_KEYBOARD,
+  PC_CALL_KEYBOARD_PRESS,
+  PC_CALL_KEYBOARD_RELEASE,
+} Proc_State_t;
+
+extern Proc_State_t proc_state;
+extern USB_JoystickReport_Input_t pc_report;
 extern int ProgState;
 
 void Serial1_Init(void);
@@ -338,3 +363,4 @@ void Keyboard_Init(void);
 void ResetDirections(void);
 void ParseLine(char* line);
 void SwitchFunction(void);
+void sendReportOnly(USB_JoystickReport_Input_t report);

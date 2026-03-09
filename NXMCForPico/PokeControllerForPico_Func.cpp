@@ -28,30 +28,6 @@ typedef enum {
 } State_t;
 State_t state = INIT;
 
-typedef enum {
-  NONE,   // do nothing
-  // On MCU
-  MASH_A,   // mash button A
-  AAABB,   // AAABB
-  AUTO_LEAGUE,// auto league
-  INF_WATT,   // infinity watt
-  PICKUPBERRY,
-  CHANGETHEDATE,  // Change the Date
-  CHANGETHEYEAR,  // Change the Year
-  P_SYNC,
-  P_UNSYNC,
-  DEBUG,
-  DEBUG2,
-
-  // From PC
-  PC_CALL,
-  PC_CALL_STRING,
-  PC_CALL_KEYBOARD,
-  PC_CALL_KEYBOARD_PRESS,
-  PC_CALL_KEYBOARD_RELEASE,
-} Proc_State_t;
-
-volatile Proc_State_t proc_state = NONE;
 const char* cmd_name[MAX_BUFFER] = {
   "none\r\n",
   "mash_a\r\n",
@@ -84,7 +60,6 @@ static unsigned long s_ultime;
 static bool blduration = false;
 static bool blwaittime = false;
 static int cnt_command = 0;
-static USB_JoystickReport_Input_t pc_report;
 static USB_JoystickReport_Input_t last_pc_report;
 static char chrread[MAX_BUFFER];
 
@@ -145,6 +120,68 @@ void ParseLine(char* line)
   } else if (strncmp(cmd, "end", 16) == 0) {
     proc_state = NONE;
     ResetDirections();
+  } else if ((uint8_t)cmd[0] == 0xaa) {
+    memset(&pc_report, 0, sizeof(uint16_t));
+    pc_lx = STICK_CENTER;
+    pc_ly = STICK_CENTER;
+    pc_rx = STICK_CENTER;
+    pc_ry = STICK_CENTER;
+    ResetDirections();
+    uint8_t* data = (uint8_t*)line;
+    p_btns = data[5] | ((uint16_t)data[6] << 8);
+    p_hat = data[7];
+    if (data[8] & 1) pc_lx = STICK_MIN;
+    if (data[8] & 2) pc_lx = STICK_MAX;
+    if (data[8] & 4) pc_ly = STICK_MIN;
+    if (data[8] & 8) pc_ly = STICK_MAX;
+    if (data[9] & 1) pc_rx = STICK_MIN;
+    if (data[9] & 2) pc_rx = STICK_MAX;
+    if (data[9] & 4) pc_ry = STICK_MIN;
+    if (data[9] & 8) pc_ry = STICK_MAX;
+
+    pc_report.Button = p_btns;
+    pc_report.Hat = p_hat;
+    pc_report.LX = pc_lx;
+    pc_report.LY = pc_ly;
+    pc_report.RX = pc_rx;
+    pc_report.RY = pc_ry;
+
+    proc_state = PC_CALL;
+  } else if ((uint8_t)cmd[0] == 0xab) {
+    memset(&pc_report, 0, sizeof(uint16_t));
+    uint8_t* data = (uint8_t*)line;
+    p_btns = data[1] | ((uint16_t)data[2] << 8);
+    p_hat = data[3];
+    pc_lx = data[4];
+    pc_ly = data[5];
+    pc_rx = data[6];
+    pc_ry = data[7];
+
+    pc_report.Button = p_btns;
+    pc_report.Hat = p_hat;
+    pc_report.LX = pc_lx;
+    pc_report.LY = pc_ly;
+    pc_report.RX = pc_rx;
+    pc_report.RY = pc_ry;
+
+    // keyboard
+    if (data[8] == 1) {
+      // normal press
+      key_press(data[9]);
+    } else if (data[8] == 2) {
+      // normal release
+      key_release(data[9]);
+    } else if (data[8] == 3) {
+      // special press
+      specialkey_press(data[9]);
+    } else if (data[8] == 4) {
+      // special release
+      specialkey_release(data[9]);
+    } else if (data[8] == 5) {
+      // all release
+      key_releaseAll();
+    }
+    proc_state = PC_CALL;
   } else if (cmd[0] >= '0' && cmd[0] <= '9') {
     uint8_t char_pos = 0;
 
@@ -261,47 +298,51 @@ void ParseLine(char* line)
     proc_state = PC_CALL_STRING;
   } else if (strncmp(cmd, "Key", 3) == 0) {
     sscanf(line, "Key %lu", &KeyValue);
+    Type_stringBySerialCommunication();//シリアル通信を用いてキーボードを使用する
+    memset(chrread, 0, sizeof(chrread));
     proc_state = PC_CALL_KEYBOARD;
     ProgState = STATE1;
   } else if (strncmp(cmd, "Press", 5) == 0) {
     sscanf(line, "Press %lu", &KeyValue);
+    specialkey_press(KeyValue);
     proc_state = PC_CALL_KEYBOARD_PRESS;
     ProgState = STATE1;
   } else if (strncmp(cmd, "Release", 7) == 0) {
     sscanf(line, "Release %lu", &KeyValue);
+    specialkey_release(KeyValue);
     proc_state = PC_CALL_KEYBOARD_RELEASE;
     ProgState = STATE1;
-  } else if (strncmp(cmd, cmd_name[MASH_A], 6) == 0) {
-    proc_state = MASH_A;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, cmd_name[AAABB], 5) == 0) {
-    proc_state = AAABB;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, cmd_name[AUTO_LEAGUE], 6) == 0) {
-    proc_state = AUTO_LEAGUE;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, cmd_name[INF_WATT], 6) == 0) {
-    proc_state = INF_WATT;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, cmd_name[PICKUPBERRY], 6) == 0) {
-    proc_state = PICKUPBERRY;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, "Date", 4) == 0) {
-    sscanf(line, "Date %lu/%lu/%lu", &YearChangeCnt, &MonthChangeCnt, &DayChangeCnt);
-    proc_state = CHANGETHEDATE;
-    ProgState = STATE1;
-  } else if (strncmp(cmd, "Year", 4) == 0) {
-    proc_state = CHANGETHEYEAR;
-    sscanf(line, "Year %lu", &YearChangeCnt);
-    NowYear = 0;
-  } else if (strncmp(cmd, cmd_name[P_SYNC], 6) == 0) {
-    proc_state = P_SYNC;
-  } else if (strncmp(cmd, cmd_name[P_UNSYNC], 6) == 0) {
-    proc_state = P_UNSYNC;
+  //} else if (strncmp(cmd, cmd_name[MASH_A], 6) == 0) {
+  //  proc_state = MASH_A;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, cmd_name[AAABB], 5) == 0) {
+  //  proc_state = AAABB;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, cmd_name[AUTO_LEAGUE], 6) == 0) {
+  //  proc_state = AUTO_LEAGUE;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, cmd_name[INF_WATT], 6) == 0) {
+  //  proc_state = INF_WATT;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, cmd_name[PICKUPBERRY], 6) == 0) {
+  //  proc_state = PICKUPBERRY;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, "Date", 4) == 0) {
+  //  sscanf(line, "Date %lu/%lu/%lu", &YearChangeCnt, &MonthChangeCnt, &DayChangeCnt);
+  //  proc_state = CHANGETHEDATE;
+  //  ProgState = STATE1;
+  //} else if (strncmp(cmd, "Year", 4) == 0) {
+  //  proc_state = CHANGETHEYEAR;
+  //  sscanf(line, "Year %lu", &YearChangeCnt);
+  //  NowYear = 0;
+  //} else if (strncmp(cmd, cmd_name[P_SYNC], 6) == 0) {
+  //  proc_state = P_SYNC;
+  //} else if (strncmp(cmd, cmd_name[P_UNSYNC], 6) == 0) {
+  //  proc_state = P_UNSYNC;
   } else {
     proc_state = DEBUG2;
   }
-  // Serial1.println(proc_state, DEC);
+  Serial1.println(proc_state, DEC);
   cnt_command = 0;
   step_size_buf = INT8_MAX;
 }
